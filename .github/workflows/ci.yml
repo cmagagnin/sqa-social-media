@@ -1,0 +1,151 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Run all tests
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: social_media
+          MYSQL_USER: ci_user
+          MYSQL_PASSWORD: ci_password
+          MYSQL_ROOT_PASSWORD: ci_root_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -pci_root_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      API_BASE_URL: http://127.0.0.1:8080
+      FRONTEND_BASE_URL: http://127.0.0.1:3000
+      NEXT_PUBLIC_BASE_URL: http://127.0.0.1:8080
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            client/package-lock.json
+            tests/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: api
+        run: sh ./mvnw -B -ntp dependency:go-offline
+
+      - name: Install frontend dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Install Playwright dependencies
+        working-directory: tests
+        run: npm ci
+
+      - name: Run backend tests
+        working-directory: api
+        run: sh ./mvnw -B -ntp test
+
+      - name: Run frontend tests
+        working-directory: client
+        run: npm test -- --runInBand
+
+      - name: Install Chromium and system dependencies
+        working-directory: tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Check DummyJSON availability
+        run: curl --fail --silent --show-error --retry 5 --retry-delay 2 'https://dummyjson.com/posts?limit=1' > /dev/null
+
+      - name: Start backend
+        working-directory: api
+        env:
+          SPRING_DATASOURCE_URL: jdbc:mysql://127.0.0.1:3306/social_media
+          SPRING_DATASOURCE_USERNAME: ci_user
+          SPRING_DATASOURCE_PASSWORD: ci_password
+        run: |
+          nohup sh ./mvnw -B -ntp spring-boot:run > "$RUNNER_TEMP/backend.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/backend.pid"
+
+      - name: Wait for backend
+        run: |
+          for attempt in {1..60}; do
+            status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 2 "$API_BASE_URL/" || true)
+            if [ "$status" != "000" ]; then
+              echo "Backend respondeu HTTP $status"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Backend não ficou disponível.'
+          cat "$RUNNER_TEMP/backend.log"
+          exit 1
+
+      - name: Start frontend
+        working-directory: client
+        run: |
+          nohup npm run dev -- --hostname 127.0.0.1 > "$RUNNER_TEMP/frontend.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/frontend.pid"
+
+      - name: Wait for frontend
+        run: |
+          for attempt in {1..60}; do
+            status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time 2 "$FRONTEND_BASE_URL/" || true)
+            if [ "$status" != "000" ]; then
+              echo "Frontend respondeu HTTP $status"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Frontend não ficou disponível.'
+          cat "$RUNNER_TEMP/frontend.log"
+          exit 1
+
+      - name: Run Playwright API and E2E tests
+        working-directory: tests
+        run: npm run test:all
+
+      - name: Upload backend and frontend logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: application-logs
+          path: |
+            ${{ runner.temp }}/backend.log
+            ${{ runner.temp }}/frontend.log
+          if-no-files-found: ignore
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            tests/playwright-report
+            tests/test-results
+          if-no-files-found: ignore

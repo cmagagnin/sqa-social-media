@@ -1,6 +1,6 @@
 # Testes Playwright — SQA Social Media
 
-Este projeto contém cinco testes de API e três testes E2E da Atividade 3. Os testes de API usam o `request` fixture do Playwright para enviar requisições HTTP reais ao backend Spring Boot. Os testes E2E usam Chromium real, frontend Next.js e backend real. Não há mocks de backend.
+Este projeto contém seis testes de API e três testes E2E. Os testes de API usam o `request` fixture do Playwright para enviar requisições HTTP reais ao backend Spring Boot. Os testes E2E usam Chromium real, frontend Next.js e backend real. Não há mocks de backend.
 
 ## Pré-requisitos
 
@@ -60,6 +60,7 @@ Os cinco cenários são:
 - API-03: login válido;
 - API-04: login com credenciais inválidas;
 - API-05: redefinição de senha para usuário inexistente.
+- API-06: resposta de posts preserva os contadores `reactions.likes` e `reactions.dislikes`.
 
 Cada teste cria dados próprios quando necessário, usando e-mails únicos. A execução é serializada para evitar conflitos no banco.
 
@@ -91,7 +92,7 @@ npm run test:list
 npm run test:all
 ```
 
-`npm run test:list` deve listar exatamente oito testes: cinco API e três E2E.
+`npm run test:list` deve listar exatamente nove testes: seis API e três E2E.
 
 ## Relatórios
 
@@ -123,6 +124,7 @@ O Spring Boot precisa conseguir autenticar no MySQL local e acessar o banco `soc
 - API-03 cadastra um usuário e envia login válido, verificando sucesso.
 - API-04 usa senha forte incorreta e verifica `401` e `Credenciais inválidas`.
 - API-05 envia reset para e-mail inexistente e verifica `404` e `Usuário não encontrado`.
+- API-06 busca um post real e verifica a estrutura numérica de `reactions`, sem fixar valores da API externa.
 - E2E-01 preenche o cadastro pelo navegador e verifica autenticação e URL `/`.
 - E2E-02 abre o feed sem autenticação, clica em Curtir e verifica o alert nativo exato.
 - E2E-03 cria usuário pela API, faz login pela tela e verifica curtida autenticada.
